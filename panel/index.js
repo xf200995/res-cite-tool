@@ -1,6 +1,7 @@
 'use strict';
 
 var fs = require('fs');
+var clipboard = require('../lib/clipboard');
 
 var PANEL_TEMPLATE = fs.readFileSync(Editor.url('packages://res-cite-tool/panel/template.html'), 'utf8');
 var PANEL_STYLE = fs.readFileSync(Editor.url('packages://res-cite-tool/panel/style.css'), 'utf8');
@@ -251,6 +252,38 @@ Editor.Panel.extend({
       } catch (e) {
         // ignore
       }
+    };
+
+    // 复制引用行的资源路径，并在按钮上做短暂反馈
+    this.copyAssetPath = function (ref, button) {
+      var url = (ref && (ref.url || urlOf(ref.uuid))) || '';
+      var text = clipboard.stripDbPrefix(url);
+      if (!text) {
+        self.toastStatus('复制失败：未获取到资源路径', 3500);
+        return;
+      }
+
+      var original = button.textContent;
+      if (original === '已复制') {
+        original = '复制路径';
+      }
+      clipboard.writeText(text, function (ok) {
+        if (!ok) {
+          self.toastStatus('复制失败：系统剪贴板不可用', 3500);
+          return;
+        }
+        if (button._copyTimer) {
+          clearTimeout(button._copyTimer);
+        }
+        button.textContent = '已复制';
+        button.classList.add('rcf-active');
+        self.toastStatus('已复制：' + text, 2000);
+        button._copyTimer = setTimeout(function () {
+          button._copyTimer = null;
+          button.textContent = original;
+          button.classList.remove('rcf-active');
+        }, 1200);
+      });
     };
 
     // -------------------------------------------------------------------------
@@ -724,12 +757,23 @@ Editor.Panel.extend({
           self.setGroupExpanded(entry, !groupBody.hidden);
         }
 
+        var copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'rcf-btn-sm';
+        copyBtn.textContent = '复制路径';
+        copyBtn.title = '复制该资源路径到剪贴板（自动去掉 db:// 前缀）';
+        copyBtn.addEventListener('click', function (event) {
+          event.stopPropagation();
+          self.copyAssetPath(group.target, copyBtn);
+        });
+
         head.appendChild(tag);
         head.appendChild(title);
         head.appendChild(totalEl);
         if (toggleBtn) {
           head.appendChild(toggleBtn);
         }
+        head.appendChild(copyBtn);
         wrap.appendChild(head);
         wrap.appendChild(groupBody);
 
@@ -770,6 +814,16 @@ Editor.Panel.extend({
             self.toggleNodeRefs(nodeBox, nodeButton, ref, group.target.uuid);
           });
 
+          var copyButton = document.createElement('button');
+          copyButton.type = 'button';
+          copyButton.className = 'rcf-btn-sm';
+          copyButton.textContent = '复制路径';
+          copyButton.title = '复制该资源路径到剪贴板（自动去掉 db:// 前缀）';
+          copyButton.addEventListener('click', function (event) {
+            event.stopPropagation();
+            self.copyAssetPath(ref, copyButton);
+          });
+
           var nodeBox = document.createElement('div');
           nodeBox.className = 'rcf-node-list';
           nodeBox.hidden = true;
@@ -783,6 +837,7 @@ Editor.Panel.extend({
           row.appendChild(count);
           row.appendChild(nodeButton);
           row.appendChild(button);
+          row.appendChild(copyButton);
           groupBody.appendChild(row);
           groupBody.appendChild(nodeBox);
         });

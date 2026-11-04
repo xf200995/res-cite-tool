@@ -178,13 +178,20 @@
   font-size: 14px;
 }
 
-.ruc-results .ruc-tag,
-.ruc-results .ruc-btn-sm {
+.ruc-results .ruc-tag {
   font-size: 13px;
+  line-height: 18px;
 }
 
-.ruc-results .ruc-tag {
-  line-height: 18px;
+/* 结果区小号元素与列表头“折叠全部引用”统一为 11px */
+.ruc-results .ruc-btn-sm {
+  font-size: 11px;
+}
+
+.ruc-results .ruc-group-total,
+.ruc-results .ruc-ref-count,
+.ruc-results .ruc-bone-count {
+  font-size: 11px;
 }
 
 .ruc-row.ruc-ref-row {

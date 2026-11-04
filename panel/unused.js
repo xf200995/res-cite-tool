@@ -1,6 +1,7 @@
 'use strict';
 
 var fs = require('fs');
+var clipboard = require('../lib/clipboard');
 
 var PANEL_TEMPLATE = fs.readFileSync(Editor.url('packages://res-cite-tool/panel/unused.html'), 'utf8');
 var PANEL_STYLE = fs.readFileSync(Editor.url('packages://res-cite-tool/panel/unused.css'), 'utf8');
@@ -637,6 +638,7 @@ Editor.Panel.extend({
         head.appendChild(title);
         head.appendChild(totalEl);
         head.appendChild(toggle);
+        head.appendChild(self.createCopyButton(target.url));
         wrap.appendChild(head);
         wrap.appendChild(body);
 
@@ -675,6 +677,7 @@ Editor.Panel.extend({
           row.appendChild(pathEl);
           row.appendChild(countEl);
           row.appendChild(showBtn);
+          row.appendChild(self.createCopyButton(ref.url));
           body.appendChild(row);
         });
 
@@ -697,6 +700,50 @@ Editor.Panel.extend({
       } catch (e) {
         // ignore
       }
+    };
+
+    // 复制资源路径，成功后按钮短暂显示“已复制”并写入日志
+    this.copyPath = function (url, button) {
+      var text = clipboard.stripDbPrefix(url);
+      if (!text) {
+        self.logLine('复制失败：未获取到资源路径', 'error');
+        return;
+      }
+
+      var original = button.textContent;
+      if (original === '已复制') {
+        original = '复制路径';
+      }
+      clipboard.writeText(text, function (ok) {
+        if (!ok) {
+          self.logLine('复制失败：系统剪贴板不可用', 'error');
+          return;
+        }
+        if (button._copyTimer) {
+          clearTimeout(button._copyTimer);
+        }
+        button.textContent = '已复制';
+        button.classList.add('ruc-active');
+        self.logLine('已复制：' + text, 'ok');
+        button._copyTimer = setTimeout(function () {
+          button._copyTimer = null;
+          button.textContent = original;
+          button.classList.remove('ruc-active');
+        }, 1200);
+      });
+    };
+
+    this.createCopyButton = function (url) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ruc-btn-sm';
+      button.textContent = '复制路径';
+      button.title = '复制该资源路径到剪贴板（自动去掉 db:// 前缀）';
+      button.addEventListener('click', function (event) {
+        event.stopPropagation();
+        self.copyPath(url, button);
+      });
+      return button;
     };
 
     this.renderItems = function (items, groups) {
@@ -856,6 +903,7 @@ Editor.Panel.extend({
       head.appendChild(title);
       head.appendChild(countEl);
       head.appendChild(toggle);
+      head.appendChild(self.createCopyButton(group.main.url));
       wrap.appendChild(head);
       wrap.appendChild(body);
 

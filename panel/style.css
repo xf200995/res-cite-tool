@@ -262,8 +262,14 @@
   line-height: 18px;
 }
 
+/* 结果区小号元素与状态栏“折叠全部引用”统一为 11px */
 .rcf-results .rcf-btn-sm {
-  font-size: 13px;
+  font-size: 11px;
+}
+
+.rcf-results .rcf-group-total,
+.rcf-results .rcf-row-count {
+  font-size: 11px;
 }
 
 .rcf-notice {
