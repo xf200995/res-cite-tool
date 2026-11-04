@@ -1,0 +1,122 @@
+<div class="ruc-root">
+  <div class="ruc-section">
+    <div class="ruc-section-title">检索范围</div>
+    <div class="ruc-mode-row">
+      <label class="ruc-radio"><input type="radio" name="ruc-mode" id="ruc-mode-ignore" value="ignore" checked /> 忽略清理目录</label>
+      <label class="ruc-radio"><input type="radio" name="ruc-mode" id="ruc-mode-specify" value="specify" /> 指定清理目录</label>
+      <label class="ruc-radio"><input type="radio" name="ruc-mode" id="ruc-mode-resources" value="resources" /> resources引用资源查询</label>
+    </div>
+    <div class="ruc-mode-panel" id="ruc-panel-ignore">
+      <input type="text" class="ruc-input" id="ruc-ignore-input" placeholder="例如：/resources,/source_remote/font" />
+      <div class="ruc-hint">多个目录用英文或中文逗号分隔，路径相对于 assets 目录。</div>
+    </div>
+    <div class="ruc-mode-panel" id="ruc-panel-specify" hidden>
+      <div class="ruc-picker-row">
+        <input type="text" class="ruc-input" id="ruc-specify-path" readonly value="assets（根目录）" title="assets（根目录）" />
+        <button type="button" class="ruc-btn" id="ruc-btn-pick-dir">选择目录</button>
+      </div>
+      <div class="ruc-hint">通过文件资源选择器指定目录，仅检索该目录下的资源（assets 内）。</div>
+    </div>
+    <div class="ruc-mode-panel" id="ruc-panel-resources" hidden>
+      <div class="ruc-hint">检索 assets/resources 目录下、被其他资源引用的所选类型资源，并按“资源引用查找”的列表格式展示引用来源。</div>
+    </div>
+  </div>
+
+  <div class="ruc-section">
+    <div class="ruc-section-title">文件类型</div>
+    <div class="ruc-types" id="ruc-types"></div>
+    <div class="ruc-hint">.meta 文件默认排除；“全部”可一键选中所有类型。</div>
+  </div>
+
+  <div class="ruc-actions">
+    <button type="button" class="ruc-btn ruc-btn-primary" id="ruc-btn-search">开始查找</button>
+    <button type="button" class="ruc-btn" id="ruc-btn-select-all" title="未全部选中时全选，已全选时取消全选">全选资源</button>
+    <button type="button" class="ruc-btn" id="ruc-btn-clean">清理资源</button>
+    <span class="ruc-summary" id="ruc-summary">未查找</span>
+  </div>
+
+  <div class="ruc-list-head">
+    <span id="ruc-list-title">未引用资源列表</span>
+    <div class="ruc-list-head-right">
+      <button type="button" class="ruc-btn-sm" id="ruc-btn-toggle-all" hidden>展开全部引用</button>
+      <span id="ruc-list-count">0 项</span>
+    </div>
+  </div>
+  <div class="ruc-results" id="ruc-results">
+    <div class="ruc-empty">点击“开始查找”检索未引用资源</div>
+  </div>
+
+  <div class="ruc-list-head ruc-log-head">
+    <span>日志</span>
+    <span class="ruc-log-tip">可选中复制</span>
+  </div>
+  <div class="ruc-log" id="ruc-log"></div>
+
+  <div class="ruc-footer">
+    <button type="button" class="ruc-btn-sm" id="ruc-btn-help">工具使用说明</button>
+  </div>
+
+  <div class="ruc-help" id="ruc-help" hidden>
+    <div class="ruc-help-head">
+      <span class="ruc-help-title">资源引用管理 · 工具使用说明</span>
+      <button type="button" class="ruc-btn-sm" id="ruc-btn-help-close">关闭</button>
+    </div>
+    <div class="ruc-help-body">
+      <div class="ruc-help-note">注：本工具在 CocosCreator v2.4.15 环境开发，理论适用 v2.4.x 版本，v2.x 其它版本需验证有效再使用，不适用 v3.x 版本。</div>
+
+      <h3>一、快速上手</h3>
+      <ol>
+        <li>在“检索范围”选择一种模式：忽略清理目录、指定清理目录或 resources 引用资源查询。</li>
+        <li>勾选需要检索的“文件类型”，点击“开始查找”。</li>
+        <li>未引用模式下，列表展示未被引用的资源；点击资源行可在资源管理器中定位，点击左侧复选框才是选中/取消选中。</li>
+        <li>勾选资源后点击“清理资源”，确认后删除资源文件及其 .meta。</li>
+        <li>resources 引用资源查询模式下，按“资源引用查找”的格式展示 resources 下被引用的资源及其引用来源。</li>
+      </ol>
+
+      <h3>二、按钮与列表说明</h3>
+      <ul>
+        <li><b>忽略清理目录</b>：检索 assets 下除输入框中列出的目录以外的资源；多个目录用英文或中文逗号分隔，路径相对 assets 目录。</li>
+        <li><b>指定清理目录</b>：通过“选择目录”打开文件资源选择器，仅检索所选目录（必须是 assets 内的目录）。</li>
+        <li><b>resources 引用资源查询</b>：检索 assets/resources 下被其他资源引用的指定类型资源，并按“资源引用查找”的列表格式展示引用来源。</li>
+        <li><b>文件类型 / 全部</b>：控制参与检索的资源类型；“全部”可一键全选或取消选中所有类型。</li>
+        <li><b>开始查找</b>：按当前检索范围、目录与文件类型执行检索。</li>
+        <li><b>全选资源</b>：未全部选中时全选列表，已全选时取消全选；骨骼组按整组选中或取消。</li>
+        <li><b>清理资源</b>：清理已勾选的资源；勾选骨骼组时会整组清理。</li>
+        <li><b>资源行</b>：点击整行可在资源管理器中定位并选中该资源；勾选/取消需点击左侧复选框。</li>
+        <li><b>骨骼组行</b>：显示引擎类型、主资源路径与“骨骼组 · N 个文件”；组头复选框选中整组，点击“查看资源 / 折叠资源”可展开或收起组内关联文件。</li>
+        <li><b>引用资源列表（resources 模式）</b>：每个资源的引用列表默认折叠；“N 个引用”右侧的“查看引用 / 折叠引用”可展开该资源的引用来源；列表头右侧的“展开全部引用 / 折叠全部引用”可批量控制。</li>
+        <li><b>引用资源行 / 分组标题行</b>：点击可在资源管理器中定位对应资源；点击引用行的“显示”可在系统文件夹中打开该文件。</li>
+        <li><b>日志区</b>：日志文本可选中复制；“工具使用说明”打开本说明页面。</li>
+      </ul>
+
+      <h3>三、引用判定与排除规则</h3>
+      <ul>
+        <li>数据来源为编辑器导入产物 <code>library/imports</code> 中的序列化引用，覆盖预制体、场景、动画、材质、JSON、图集等对资源 UUID 的引用。</li>
+        <li>仅统计 assets 下的资源；<code>db://internal</code> 内置资源不参与未引用候选；.meta 文件默认排除。</li>
+        <li>图片等“主资源 + 子资源”按资源家族聚合；同家族自引用、同一文件内部引用不计为外部引用。</li>
+        <li>图集排除：png 被同目录同名 <code>.plist</code> 图集引用时，不计为 png 的引用，该 png 不单独列为未引用资源。</li>
+        <li>骨骼动画排除：png 被同目录同名 Spine（<code>.skel</code> / <code>.atlas</code>）或 DragonBones（<code>.json</code> / <code>.dbbin</code>）引用时，不单独列为未引用资源。</li>
+        <li>骨骼动画按“资源组”判定：Spine 组 = 主资源 + textures 贴图 + 同名 .atlas；DragonBones 组 = 主资源 + 同名图集 + 图集贴图。组内任一成员被组外资源引用则整组视为已引用；整组都没有外部引用时，按一个骨骼组条目列出，清理时整组删除。</li>
+        <li>自动图集 .pac：所在目录及所有子目录存在 <code>importer = texture</code> 的资源时，视为该 .pac 仍在使用并保护；目录内完全没有纹理资源时，才可能被列为未引用。</li>
+        <li>未覆盖：代码中通过路径加载（如 <code>loadRes('resources/xxx')</code>）、<code>require</code>、构建设置（如启动场景）以及间接引用链。</li>
+      </ul>
+
+      <h3>四、什么时候需要“重建索引”</h3>
+      <ul>
+        <li>正常不需要：每次查找都会自动检测资源变化并增量刷新，只重读变动资源。</li>
+        <li>仅建议在这些情况手动重建：怀疑索引异常或结果明显与项目不符；手动改动或删除了缓存文件；从版本控制或其他途径整体替换了资源与 <code>library</code> 目录；切换分支后首次查找结果异常。</li>
+        <li>索引缓存版本或编辑器版本变化时插件会自动全量重建，无需手动操作。</li>
+      </ul>
+
+      <h3>五、使用事项</h3>
+      <ul>
+        <li>检索范围配置、指定目录与文件类型勾选状态会自动保存到 <code>local/res-cite-tool/unused-settings.json</code>，下次启动 Creator 时恢复上次配置。</li>
+        <li>索引缓存位置：<code>local/res-cite-tool/index-cache.json</code>，删除后下次查找会自动全量重建。</li>
+        <li>resources 目录资源通常由代码动态加载，建议在“忽略清理目录”中加入 resources，避免误判。</li>
+        <li>清理会删除资源文件及其 .meta，且无法撤销；骨骼组会连同主资源、图集与贴图一起删除。</li>
+        <li>清理前请确认资源未被代码动态加载或构建设置引用；建议在版本控制下操作，便于恢复。</li>
+        <li>万级资源项目首次全量构建约 1–3 秒，之后查找为毫秒级。</li>
+      </ul>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,33 @@
+{
+  "name": "res-cite-tool",
+  "version": "1.0.0",
+  "description": "Cocos Creator 2.4.x 资源引用工具：资源引用查找、未引用资源清理",
+  "author": "ResCiteTool",
+  "main": "main.js",
+  "main-menu": {
+    "i18n:MAIN_MENU.package.title/资源引用工具/资源引用查找": {
+      "message": "res-cite-tool:open-panel"
+    },
+    "i18n:MAIN_MENU.package.title/资源引用工具/资源引用管理": {
+      "message": "res-cite-tool:open-unused-panel"
+    }
+  },
+  "panel": {
+    "main": "panel/index.js",
+    "type": "dockable",
+    "title": "资源引用查找",
+    "width": 560,
+    "height": 680,
+    "min-width": 360,
+    "min-height": 320
+  },
+  "panel.unused": {
+    "main": "panel/unused.js",
+    "type": "dockable",
+    "title": "资源引用管理",
+    "width": 760,
+    "height": 680,
+    "min-width": 520,
+    "min-height": 460
+  }
+}

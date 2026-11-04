@@ -1,0 +1,97 @@
+<div class="rcf-root">
+  <div class="rcf-toolbar">
+    <div class="rcf-selection-wrap">
+      <div class="rcf-selection-label">当前选中</div>
+      <div class="rcf-selection" id="rcf-selection">未选中资源</div>
+    </div>
+    <div class="rcf-actions">
+      <button type="button" class="rcf-btn rcf-btn-primary" id="rcf-btn-query">查询</button>
+      <button type="button" class="rcf-btn" id="rcf-btn-rebuild" title="重建引用索引">重建索引</button>
+      <button type="button" class="rcf-btn" id="rcf-btn-settings" title="快捷键设置">快捷键</button>
+    </div>
+  </div>
+
+  <div class="rcf-settings" id="rcf-settings" hidden>
+    <div class="rcf-settings-row">
+      <span class="rcf-settings-label">快捷键</span>
+      <input type="text" class="rcf-input" id="rcf-shortcut-input" readonly placeholder="点击后按下组合键" />
+      <button type="button" class="rcf-btn rcf-btn-primary" id="rcf-btn-save-shortcut">保存</button>
+      <button type="button" class="rcf-btn" id="rcf-btn-reset-shortcut">默认</button>
+    </div>
+    <div class="rcf-hint" id="rcf-shortcut-hint">提示：快捷键在 Creator 窗口内全局生效；命中时会拦截编辑器同组合键。</div>
+  </div>
+
+  <div class="rcf-statusbar">
+    <div class="rcf-status" id="rcf-status">索引准备中…</div>
+    <button type="button" class="rcf-btn-sm rcf-toggle-all" id="rcf-btn-toggle-all" hidden>折叠全部引用</button>
+  </div>
+
+  <div class="rcf-results" id="rcf-results">
+    <div class="rcf-notice">请先在资源管理器选中资源，再按快捷键或点击“查询”</div>
+  </div>
+
+  <div class="rcf-footer">
+    <span class="rcf-footer-text">统计范围：序列化资源引用（不含代码 loadRes、粒子 plist 按文件名引用）</span>
+    <button type="button" class="rcf-btn-sm" id="rcf-btn-help">工具使用说明</button>
+  </div>
+
+  <div class="rcf-help" id="rcf-help" hidden>
+    <div class="rcf-help-head">
+      <span class="rcf-help-title">工具使用说明</span>
+      <button type="button" class="rcf-btn-sm" id="rcf-btn-help-close">关闭</button>
+    </div>
+    <div class="rcf-help-body">
+      <div class="rcf-help-note">注：本工具在 CocosCreator v2.4.15 环境开发，理论适用 v2.4.x 版本，v2.x 其它版本需验证有效再使用，不适用 v3.x 版本。</div>
+
+      <h3>一、快速上手</h3>
+      <ol>
+        <li>在资源管理器中选中要查询的资源（支持多选）。</li>
+        <li>按快捷键（默认 <code>Shift+F12</code>，可在“快捷键”中修改），或点击面板右上角“查询”。</li>
+        <li>结果会按“引用该资源的文件”分组显示，点击结果行即可在资源管理器中定位。</li>
+        <li>点击行内“引用节点”，可展开该文件中引用此资源的具体节点（节点路径 · 组件.属性）。</li>
+      </ol>
+
+      <h3>二、按钮说明</h3>
+      <ul>
+        <li><b>查询</b>：按资源管理器当前选中的资源重新查询引用。</li>
+        <li><b>重建索引</b>：丢弃现有索引并全量重建；正常使用无需点击，适用场景见第四节。</li>
+        <li><b>快捷键</b>：展开快捷键设置；点击输入框后按下组合键，再点“保存”生效，“默认”可恢复 <code>Shift+F12</code>。</li>
+        <li><b>当前选中（路径）</b>：点击面板顶部的资源路径，可在资源管理器中定位该资源。</li>
+        <li><b>分组标题行</b>：点击“资源路径 / N 个引用”所在行，可在资源管理器中定位并选中该资源（多选查询时可逐个定位）。</li>
+        <li><b>查看引用 / 折叠引用（分组标题）</b>：位于每组“N 个引用”右侧；单次选中多个资源时所有分组默认折叠，点击可展开或折叠该资源的所有引用资源列表（单选时默认展开）。</li>
+        <li><b>展开全部引用 / 折叠全部引用</b>：位于索引状态行最右侧，一次性展开或折叠所有选中资源的引用资源列表；展开时不会展开引用行内的节点列表。</li>
+        <li><b>查看引用 / 折叠引用（引用行）</b>：位于每个引用资源行内，展开/收起该文件中引用此资源的具体节点列表（节点路径 · 组件.属性），展开后按钮高亮。点击节点行会自动打开该 prefab 的预制体编辑模式，并在层级管理器中选中对应节点。</li>
+        <li><b>显示</b>：在操作系统文件夹中打开被引用的资源文件。</li>
+        <li><b>结果行</b>：点击整行可在资源管理器选中并高亮该引用资源。</li>
+        <li><b>工具使用说明</b>：打开本说明页面。</li>
+      </ul>
+
+      <h3>三、查找范围</h3>
+      <ul>
+        <li>数据来源为编辑器导入产物 <code>library/imports</code> 中的序列化资源，覆盖预制体、场景、动画、材质、JSON、图集等对资源的 UUID 引用。</li>
+        <li>图片等“主资源 + 子资源”按资源家族聚合，选中贴图也能查到对 spriteFrame 的引用。</li>
+        <li>脚本引用：组件挂载脚本时记录的压缩 UUID（兼容 22 / 23 字符两种格式）。</li>
+        <li>位图字体（.fnt）的 <code>textureUuid</code> 也会计入。</li>
+        <li>不包含：代码中通过路径加载（如 <code>loadRes('resources/xxx')</code>）、粒子 plist 中按文件名引用的贴图，以及间接（递归）引用链。</li>
+      </ul>
+
+      <h3>四、什么时候需要“重建索引”</h3>
+      <ul>
+        <li>正常不需要：每次查询都会自动检测资源变化并增量刷新，只重读变动资源。</li>
+        <li>仅建议在这些情况手动重建：怀疑索引异常或结果明显与项目不符；手动改动/删除了缓存文件；从版本控制或其他途径整体替换了资源与 <code>library</code> 目录；切换分支后首次查询结果异常。</li>
+        <li>编辑器版本或缓存版本变化时插件会自动全量重建，无需手动点击。</li>
+      </ul>
+
+      <h3>五、使用事项</h3>
+      <ul>
+        <li>插件加载后会在后台构建索引，首次可在状态栏看到构建进度；构建期间查询会等待完成。</li>
+        <li>缓存位置：<code>local/res-cite-tool/index-cache.json</code>，删除后下次查询会自动全量重建。</li>
+        <li>快捷键在 Creator 窗口内生效；命中时会拦截编辑器同组合键，若与常用快捷键冲突请在“快捷键”中改键。</li>
+        <li>“查看引用 / 折叠引用（引用行）”为按需解析该文件，若资源正在导入可能提示稍后重试；嵌套预制体内部的节点会在其自身资源条目下展开。</li>
+        <li>点击节点行定位 prefab 节点时，场景面板会切换到预制体编辑模式；若当前场景有未保存修改，请先保存再定位。</li>
+        <li>结果仅统计“被其他资源引用”，自引用与同一资源内部的子资源引用已自动过滤。</li>
+        <li>万级资源项目首次全量构建约 1–3 秒，之后查询为毫秒级。</li>
+      </ul>
+    </div>
+  </div>
+</div>
