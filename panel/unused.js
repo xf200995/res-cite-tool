@@ -827,6 +827,7 @@ Editor.Panel.extend({
       row.appendChild(checkbox);
       row.appendChild(extEl);
       row.appendChild(pathEl);
+      row.appendChild(self.createCopyButton(item.url));
 
       row.addEventListener('click', function () {
         self.locateAsset(item.uuid);
