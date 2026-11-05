@@ -198,6 +198,70 @@
   padding-left: 18px;
 }
 
+/* 节点级引用展开，视觉与查找面板的 rcf-node-* 保持一致 */
+.ruc-node-list {
+  padding: 4px 10px 6px 34px;
+  background: #2f2f2f;
+  border-top: 1px solid #262626;
+}
+
+.ruc-node-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  line-height: 18px;
+}
+
+.ruc-node-row-clickable {
+  margin: 0 -4px;
+  padding: 2px 4px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.ruc-node-row-clickable:hover {
+  background: #383838;
+}
+
+.ruc-node-hit {
+  background: #263a52 !important;
+}
+
+.ruc-node-path {
+  flex: 0 1 auto;
+  max-width: 55%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #cfcfcf;
+  font-family: Consolas, Menlo, monospace;
+}
+
+.ruc-node-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #7fb3ff;
+  font-family: Consolas, Menlo, monospace;
+}
+
+.ruc-node-count {
+  flex: 0 0 auto;
+  color: #8a8a8a;
+}
+
+.ruc-node-notice {
+  padding: 2px 0;
+  color: #8a8a8a;
+}
+
+.ruc-node-toggle {
+  flex: 0 0 auto;
+}
+
 .ruc-row {
   display: flex;
   align-items: center;

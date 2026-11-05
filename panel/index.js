@@ -2,6 +2,8 @@
 
 var fs = require('fs');
 var clipboard = require('../lib/clipboard');
+var nodeRefs = require('../lib/node-refs');
+var nodeLocate = require('../lib/node-locate');
 
 var PANEL_TEMPLATE = fs.readFileSync(Editor.url('packages://res-cite-tool/panel/template.html'), 'utf8');
 var PANEL_STYLE = fs.readFileSync(Editor.url('packages://res-cite-tool/panel/style.css'), 'utf8');
@@ -123,7 +125,7 @@ Editor.Panel.extend({
     this._busy = false;
     this._statusTimer = null;
     this._nodeCache = new Map();
-    this._locatingNode = false;
+    this._nodeLocateState = nodeLocate.createState();
     this._toastBase = null;
     this._toastTimer = null;
 
@@ -354,231 +356,23 @@ Editor.Panel.extend({
     };
 
     this.renderNodeList = function (box, nodes, ref) {
-      box.innerHTML = '';
-      if (!nodes || nodes.length === 0) {
-        self.nodeNotice(box, '该文件中未找到节点级引用（可能为资源级引用）');
-        return;
-      }
-      nodes.forEach(function (item) {
-        var row = document.createElement('div');
-        row.className = 'rcf-node-row';
-
-        if (item.nodePath) {
-          row.classList.add('rcf-node-row-clickable');
-          row.title = '点击在层级管理器中定位该节点：' + item.nodePath;
-          row.addEventListener('click', function () {
-            self.locateNodeItem(ref, item, row);
-          });
-        } else {
-          row.title = '资源级引用，无关联节点';
-        }
-
-        var pathEl = document.createElement('span');
-        pathEl.className = 'rcf-node-path';
-        pathEl.textContent = item.nodePath || '资源文件自身';
-        pathEl.title = pathEl.textContent;
-
-        var metaEl = document.createElement('span');
-        metaEl.className = 'rcf-node-meta';
-        metaEl.textContent = item.component + (item.property ? '.' + item.property : '');
-        metaEl.title = metaEl.textContent;
-
-        var countEl = document.createElement('span');
-        countEl.className = 'rcf-node-count';
-        countEl.textContent = item.count > 1 ? '×' + item.count : '';
-
-        row.appendChild(pathEl);
-        row.appendChild(metaEl);
-        row.appendChild(countEl);
-        box.appendChild(row);
+      nodeRefs.renderList(box, nodes, {
+        prefix: 'rcf',
+        emptyText: '该文件中未找到节点级引用（可能为资源级引用）',
+        onSelect: function (item, row) {
+          self.locateNodeItem(ref, item, row);
+        },
       });
-    };
-
-    this.isPrefabEditMode = function (hierarchy, rootName) {
-      if (!Array.isArray(hierarchy) || !rootName) {
-        return false;
-      }
-      var sceneRoots = hierarchy.filter(function (node) {
-        return node && String(node.name || '').indexOf('Editor Scene ') !== 0;
-      });
-      return sceneRoots.length === 1 &&
-        sceneRoots[0].name === rootName &&
-        Number(sceneRoots[0].prefabState) !== 0;
-    };
-
-    this.findNodeInHierarchy = function (roots, item) {
-      if (!Array.isArray(roots) || roots.length === 0) {
-        return null;
-      }
-      var parts = String(item.nodePath || '').split('/');
-      var rootName = parts[0] || '';
-      var candidates = roots.filter(function (node) {
-        return node && node.name === rootName;
-      });
-      // prefab 编辑模式下优先匹配 prefab 内节点（prefabState 非 0）
-      candidates.sort(function (a, b) {
-        return (Number(b.prefabState) || 0) - (Number(a.prefabState) || 0);
-      });
-
-      var indexPath = item.nodeIndexPath || [];
-      var expectedName = parts[parts.length - 1];
-      for (var c = 0; c < candidates.length; c++) {
-        var current = candidates[c];
-        var ok = true;
-        for (var i = 0; i < indexPath.length; i++) {
-          if (!current.children || !current.children[indexPath[i]]) {
-            ok = false;
-            break;
-          }
-          current = current.children[indexPath[i]];
-        }
-        if (ok && current.name === expectedName) {
-          return current;
-        }
-      }
-
-      // 回退：按名称路径深度优先匹配
-      var found = null;
-      function dfs (nodes, ancestors) {
-        for (var i = 0; i < nodes.length && !found; i++) {
-          var node = nodes[i];
-          if (!node) {
-            continue;
-          }
-          var path = ancestors.concat(node.name);
-          if (path.join('/') === item.nodePath) {
-            found = node;
-            return;
-          }
-          if (node.children && node.children.length) {
-            dfs(node.children, path);
-          }
-        }
-      }
-      dfs(roots, []);
-      return found;
     };
 
     this.locateNodeItem = function (ref, item, row) {
-      if (!item || !item.nodePath) {
-        return;
-      }
-
-      row.classList.add('rcf-node-hit');
-      setTimeout(function () {
-        row.classList.remove('rcf-node-hit');
-      }, 1500);
-
-      if (item.nodeId) {
-        try {
-          Editor.Selection.select('node', item.nodeId, true, true);
-          self.toastStatus('已定位节点（若层级中未高亮，请先打开该场景）', 3000);
-        } catch (e) {
-          self.toastStatus('定位节点失败：' + e.message, 3500);
-        }
-        return;
-      }
-
-      if (ref.type === 'prefab') {
-        self.openPrefabAndLocate(ref, item);
-        return;
-      }
-      self.toastStatus('该引用文件不是 prefab，请先打开对应场景后再定位节点', 3500);
-    };
-
-    this.openPrefabAndLocate = function (ref, item) {
-      if (self._locatingNode) {
-        self.toastStatus('正在定位节点，请稍候…', 2000);
-        return;
-      }
-      self._locatingNode = true;
-      self._toastBase = null;
-      self.toastStatus('正在打开 prefab：' + (ref.name || ref.url) + '…', 5000);
-
-      try {
-        Editor.Ipc.sendToAll('scene:enter-prefab-edit-mode', ref.uuid);
-      } catch (e) {
-        self._locatingNode = false;
-        self.toastStatus('打开 prefab 失败：' + e.message, 4000);
-        return;
-      }
-
-      var rootName = String(item.nodePath || '').split('/')[0];
-      var attempts = 0;
-      // 首次打开 prefab 可能较慢（尤其带贴图/嵌套预制体），最多等待约 30 秒
-      var maxAttempts = 90;
-
-      function finish (found) {
-        self._locatingNode = false;
-        if (found) {
-          self.toastStatus('已定位节点：' + item.nodePath);
-        } else {
-          self.toastStatus('已打开 prefab，但未自动定位到节点（文件可能已修改）', 4500);
-        }
-      }
-
-      function selectNode (found) {
-        try {
-          Editor.Selection.select('node', found.id, true, true);
-        } catch (e) {
-          // ignore
-        }
-      }
-
-      function retryLater () {
-        setTimeout(poll, 350);
-      }
-
-      function poll () {
-        attempts++;
-        if (attempts > maxAttempts) {
-          finish(false);
-          return;
-        }
-        if (attempts === 15) {
-          self.toastStatus('prefab 加载较慢，仍在等待…', 4500);
-        }
-        Editor.Ipc.sendToPanel('scene', 'scene:query-hierarchy', function (err, sceneId, hierarchy) {
-          if (err || !hierarchy) {
-            retryLater();
-            return;
-          }
-          // 必须确认已经切换到该 prefab 的编辑模式，避免在旧场景里误选同名节点
-          if (!self.isPrefabEditMode(hierarchy, rootName)) {
-            retryLater();
-            return;
-          }
-          var found = self.findNodeInHierarchy(hierarchy, item);
-          if (!found || !found.id) {
-            retryLater();
-            return;
-          }
-          selectNode(found);
-          // 进入编辑模式后可能还有一次层级刷新会清空选中状态，稍后确认一次
-          setTimeout(function () {
-            Editor.Ipc.sendToPanel('scene', 'scene:query-hierarchy', function (err2, sceneId2, hierarchy2) {
-              if (err2 || !hierarchy2 || !self.isPrefabEditMode(hierarchy2, rootName)) {
-                retryLater();
-                return;
-              }
-              var again = self.findNodeInHierarchy(hierarchy2, item);
-              var selected = [];
-              try {
-                selected = Editor.Selection.curSelection('node') || [];
-              } catch (e) {
-                selected = [];
-              }
-              if (again && again.id === found.id && selected.indexOf(found.id) !== -1) {
-                finish(true);
-              } else {
-                retryLater();
-              }
-            });
-          }, 350);
-        });
-      }
-
-      setTimeout(poll, 300);
+      nodeLocate.locate(self._nodeLocateState, ref, item, {
+        row: row,
+        hitClass: 'rcf-node-hit',
+        notify: function (text, duration) {
+          self.toastStatus(text, duration);
+        },
+      });
     };
 
     this.toggleNodeRefs = function (box, button, ref, targetUuid) {

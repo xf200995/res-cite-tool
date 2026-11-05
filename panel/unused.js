@@ -2,6 +2,8 @@
 
 var fs = require('fs');
 var clipboard = require('../lib/clipboard');
+var nodeRefs = require('../lib/node-refs');
+var nodeLocate = require('../lib/node-locate');
 
 var PANEL_TEMPLATE = fs.readFileSync(Editor.url('packages://res-cite-tool/panel/unused.html'), 'utf8');
 var PANEL_STYLE = fs.readFileSync(Editor.url('packages://res-cite-tool/panel/unused.css'), 'utf8');
@@ -88,6 +90,8 @@ Editor.Panel.extend({
     this._typesReady = false;
     this._configApplied = false;
     this._savedConfig = null;
+    this._nodeCache = new Map();
+    this._nodeLocateState = nodeLocate.createState();
 
     var modeChanged = function () {
       self.updateMode();
@@ -161,6 +165,7 @@ Editor.Panel.extend({
       self._items = [];
       self._groups = [];
       self._groupEntries = [];
+      self._nodeCache.clear();
       self.$btnToggleAll.hidden = true;
       self.$results.innerHTML = '';
       var empty = document.createElement('div');
@@ -579,6 +584,7 @@ Editor.Panel.extend({
       self._items = [];
       self._groups = [];
       self._groupEntries = [];
+      self._nodeCache.clear();
       self.$btnToggleAll.hidden = true;
       self.$results.innerHTML = '';
 
@@ -673,12 +679,36 @@ Editor.Panel.extend({
             self.revealUrl(ref.url);
           });
 
+          var nodeButton = null;
+          var nodeBox = null;
+          if (self.supportsNodeRefs(ref.type)) {
+            nodeButton = document.createElement('button');
+            nodeButton.type = 'button';
+            nodeButton.className = 'ruc-btn-sm ruc-node-toggle';
+            nodeButton.textContent = '查看引用';
+            nodeButton.title = '展开该文件中引用此资源的节点';
+            nodeButton.addEventListener('click', function (event) {
+              event.stopPropagation();
+              self.toggleNodeRefs(nodeBox, nodeButton, ref, target.uuid);
+            });
+
+            nodeBox = document.createElement('div');
+            nodeBox.className = 'ruc-node-list';
+            nodeBox.hidden = true;
+          }
+
           row.appendChild(refTag);
           row.appendChild(pathEl);
           row.appendChild(countEl);
+          if (nodeButton) {
+            row.appendChild(nodeButton);
+          }
           row.appendChild(showBtn);
           row.appendChild(self.createCopyButton(ref.url));
           body.appendChild(row);
+          if (nodeBox) {
+            body.appendChild(nodeBox);
+          }
         });
 
         self.$results.appendChild(wrap);
@@ -746,6 +776,105 @@ Editor.Panel.extend({
       return button;
     };
 
+    // 只有可能包含节点的序列化资源才提供节点展开入口
+    this.supportsNodeRefs = function (type) {
+      var value = String(type || '').toLowerCase();
+      return value === 'prefab' || value === 'fire' || value === 'scene';
+    };
+
+    this.nodeNotice = function (box, text) {
+      box.innerHTML = '';
+      var node = document.createElement('div');
+      node.className = 'ruc-node-notice';
+      node.textContent = text;
+      box.appendChild(node);
+    };
+
+    this.renderNodeList = function (box, nodes, ref) {
+      nodeRefs.renderList(box, nodes, {
+        prefix: 'ruc',
+        emptyText: '该文件中未找到节点级引用（可能为资源级引用）',
+        onSelect: function (item, row) {
+          self.locateNodeItem(ref, item, row);
+        },
+      });
+    };
+
+    this.locateNodeItem = function (ref, item, row) {
+      nodeLocate.locate(self._nodeLocateState, ref, item, {
+        row: row,
+        hitClass: 'ruc-node-hit',
+        notify: function (text, duration, level) {
+          var kind = null;
+          if (level === 'error') {
+            kind = 'error';
+          } else if (level === 'ok') {
+            kind = 'ok';
+          }
+          self.logLine(text, kind);
+        },
+      });
+    };
+
+    this.toggleNodeRefs = function (box, button, ref, targetUuid) {
+      if (!box.hidden) {
+        box.hidden = true;
+        button.classList.remove('ruc-active');
+        button.textContent = '查看引用';
+        button.title = '展开该文件中引用此资源的节点';
+        return;
+      }
+
+      var cacheKey = targetUuid + '|' + ref.uuid;
+      if (self._nodeCache.has(cacheKey)) {
+        var cached = self._nodeCache.get(cacheKey);
+        if (cached.length === 0) {
+          // 已知没有节点级信息时不再展示空控件
+          button.hidden = true;
+          box.hidden = true;
+          return;
+        }
+        box.hidden = false;
+        button.classList.add('ruc-active');
+        button.textContent = '折叠引用';
+        button.title = '折叠该文件中引用此资源的节点列表';
+        self.renderNodeList(box, cached, ref);
+        return;
+      }
+
+      box.hidden = false;
+      button.classList.add('ruc-active');
+      button.textContent = '折叠引用';
+      button.title = '折叠该文件中引用此资源的节点列表';
+
+      self.nodeNotice(box, '解析中…');
+      Editor.Ipc.sendToMain('res-cite-tool:query-nodes', {
+        referrerUuid: ref.uuid,
+        targetUuid: targetUuid,
+      }, function (err, res) {
+        if (err || !res || res.ok !== true) {
+          var code = (res && res.error) || (err && err.message) || '未知错误';
+          if (code === 'FILE_NOT_FOUND') {
+            self.nodeNotice(box, '找不到该资源的序列化文件（可能尚未导入完成）');
+          } else if (code === 'PARSE_FAILED') {
+            self.nodeNotice(box, '该资源文件格式不支持节点解析');
+          } else {
+            self.nodeNotice(box, '解析失败：' + code);
+          }
+          return;
+        }
+        var nodes = res.nodes || [];
+        self._nodeCache.set(cacheKey, nodes);
+        if (nodes.length === 0) {
+          box.hidden = true;
+          button.hidden = true;
+          self.logLine('该文件中未找到节点级引用（可能为资源级引用）');
+          return;
+        }
+        self.renderNodeList(box, nodes, ref);
+      });
+    };
+
     this.renderItems = function (items, groups) {
       items = items || [];
       groups = groups || [];
@@ -754,6 +883,7 @@ Editor.Panel.extend({
       self._items = [];
       self._groups = [];
       self._groupEntries = [];
+      self._nodeCache.clear();
       self.$btnToggleAll.hidden = true;
 
       if (!items.length && !groups.length) {
