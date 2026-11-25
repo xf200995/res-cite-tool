@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>快速查找资源设置</title>
+    <link rel="stylesheet" type="text/css" href="index.css">
+    <script type="text/javascript" src="index.js" defer></script>
+</head>
+
+<body>
+    <div class="layout">
+        <div class="desc">设置打开“快速查找资源”窗口的快捷键。快捷键在 Creator 窗口内全局生效，命中时会拦截编辑器同组合键。</div>
+        <div class="row">
+            <span class="label">打开快速查找</span>
+            <input id="shortcut" class="input" type="text" readonly placeholder="点击后按下组合键" spellcheck="false" autofocus />
+        </div>
+        <div class="hint" id="hint">默认 F1；需包含 Ctrl/Alt/Meta，或使用 F1–F24。</div>
+        <div class="actions">
+            <button id="btnReset" class="btn" type="button">恢复默认</button>
+            <button id="btnSave" class="btn btn-primary" type="button">保存</button>
+        </div>
+    </div>
+</body>
+
+</html>

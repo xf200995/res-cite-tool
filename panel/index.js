@@ -756,10 +756,12 @@ Editor.Panel.extend({
 
     this.loadSettings = function () {
       Editor.Ipc.sendToMain('res-cite-tool:get-settings', function (err, res) {
-        if (err || !res || !res.shortcut) {
+        if (err || !res) {
           return;
         }
-        self.$shortcutInput.value = res.shortcut.label || '';
+        if (res.shortcut) {
+          self.$shortcutInput.value = res.shortcut.label || '';
+        }
       });
     };
 
@@ -815,6 +817,16 @@ Editor.Panel.extend({
     });
     this.$shortcutInput.addEventListener('keydown', function (event) {
       self.captureShortcut(event);
+    });
+    this.$shortcutInput.addEventListener('focus', function () {
+      Editor.Ipc.sendToMain('res-cite-tool:set-shortcut-recording', true);
+    });
+    this.$shortcutInput.addEventListener('blur', function () {
+      Editor.Ipc.sendToMain('res-cite-tool:set-shortcut-recording', false);
+    });
+
+    window.addEventListener('blur', function () {
+      Editor.Ipc.sendToMain('res-cite-tool:set-shortcut-recording', false);
     });
 
     Editor.Ipc.sendToMain('res-cite-tool:panel-ready');

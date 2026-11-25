@@ -13,12 +13,12 @@
 
   <div class="rcf-settings" id="rcf-settings" hidden>
     <div class="rcf-settings-row">
-      <span class="rcf-settings-label">快捷键</span>
+      <span class="rcf-settings-label">引用查找</span>
       <input type="text" class="rcf-input" id="rcf-shortcut-input" readonly placeholder="点击后按下组合键" />
       <button type="button" class="rcf-btn rcf-btn-primary" id="rcf-btn-save-shortcut">保存</button>
       <button type="button" class="rcf-btn" id="rcf-btn-reset-shortcut">默认</button>
     </div>
-    <div class="rcf-hint" id="rcf-shortcut-hint">提示：快捷键在 Creator 窗口内全局生效；命中时会拦截编辑器同组合键。</div>
+    <div class="rcf-hint" id="rcf-shortcut-hint">提示：引用查找默认 Shift+F12；快速查找快捷键请在菜单“扩展 / 资源引用工具 → 资源快速查找 → 设置”中修改；快捷键在 Creator 窗口内全局生效，命中时会拦截编辑器同组合键。</div>
   </div>
 
   <div class="rcf-statusbar">
@@ -47,6 +47,7 @@
       <ol>
         <li>在资源管理器中选中要查询的资源（支持多选）。</li>
         <li>按快捷键（默认 <code>Shift+F12</code>，可在“快捷键”中修改），或点击面板右上角“查询”。</li>
+        <li>按 <code>F1</code>（默认，可在菜单“扩展 / 资源引用工具 → 资源快速查找 → 设置”中修改）可打开快速查找：按名称搜索项目内的资源与文件夹，粘贴完整 UUID 可直接定位资源。</li>
         <li>结果会按“引用该资源的文件”分组显示，点击结果行即可在资源管理器中定位。</li>
         <li>点击行内“引用节点”，可展开该文件中引用此资源的具体节点（节点路径 · 组件.属性）。</li>
       </ol>
@@ -55,7 +56,7 @@
       <ul>
         <li><b>查询</b>：按资源管理器当前选中的资源重新查询引用。</li>
         <li><b>重建索引</b>：丢弃现有索引并全量重建；正常使用无需点击，适用场景见第四节。</li>
-        <li><b>快捷键</b>：展开快捷键设置；点击输入框后按下组合键，再点“保存”生效，“默认”可恢复 <code>Shift+F12</code>。</li>
+        <li><b>快捷键</b>：展开引用查找快捷键设置，默认 <code>Shift+F12</code>；点击输入框后按下组合键，再点“保存”生效，“默认”可恢复默认值。快速查找快捷键请通过菜单“扩展 / 资源引用工具 → 资源快速查找 → 设置”修改。</li>
         <li><b>当前选中（路径）</b>：点击面板顶部的资源路径，可在资源管理器中定位该资源。</li>
         <li><b>分组标题行</b>：点击“资源路径 / N 个引用”所在行，可在资源管理器中定位并选中该资源（多选查询时可逐个定位）。</li>
         <li><b>查看引用 / 折叠引用（分组标题）</b>：位于每组“N 个引用”右侧；单次选中多个资源时所有分组默认折叠，点击可展开或折叠该资源的所有引用资源列表（单选时默认展开）。</li>
@@ -87,7 +88,7 @@
       <ul>
         <li>插件加载后会在后台构建索引，首次可在状态栏看到构建进度；构建期间查询会等待完成。</li>
         <li>缓存位置：<code>local/res-cite-tool/index-cache.json</code>，删除后下次查询会自动全量重建。</li>
-        <li>快捷键在 Creator 窗口内生效；命中时会拦截编辑器同组合键，若与常用快捷键冲突请在“快捷键”中改键。</li>
+        <li>快捷键在 Creator 窗口内生效；命中时会拦截编辑器同组合键，若与常用快捷键冲突请在“快捷键”或菜单“资源快速查找 → 设置”中改键。</li>
         <li>“查看引用 / 折叠引用（引用行）”为按需解析该文件，若资源正在导入可能提示稍后重试；嵌套预制体内部的节点会在其自身资源条目下展开。</li>
         <li>点击节点行定位 prefab 节点时，场景面板会切换到预制体编辑模式；若当前场景有未保存修改，请先保存再定位。</li>
         <li>结果仅统计“被其他资源引用”，自引用与同一资源内部的子资源引用已自动过滤。</li>

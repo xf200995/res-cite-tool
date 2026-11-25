@@ -14,13 +14,20 @@ var UNUSED_PANEL_ID = 'res-cite-tool.unused';
 var indexer = null;
 var indexerPromise = null;
 var shortcut = settingsLib.DEFAULT_SHORTCUT;
+var searchShortcut = settingsLib.DEFAULT_SEARCH_SHORTCUT;
 var settingsPath = null;
 var attached = new Map();
 var onWindowCreated = null;
-var globalFallbackAccelerator = null;
+var globalFallbackAccelerators = [];
 var disposed = false;
 var pendingTrigger = null;
 var pendingTriggerTimer = null;
+var searchWindow = null;
+var searchSettingsWindow = null;
+var searchEntries = [];
+var searchIpcInstalled = false;
+var searchOpening = false;
+var shortcutRecording = false;
 
 function log (msg) {
   try {
@@ -176,7 +183,9 @@ function ensureIndexer () {
 
       var projectPath = getProjectPath();
       if (projectPath && !settingsPath) {
-        shortcut = loadProjectSettings(projectPath).shortcut;
+        var loaded = loadProjectSettings(projectPath);
+        shortcut = loaded.shortcut;
+        searchShortcut = loaded.searchShortcut;
       }
 
       var importsDir = projectPath ? nodePath.join(projectPath, 'library', 'imports') : '';
@@ -243,6 +252,10 @@ function isEditorWindow (win) {
     if (url.indexOf('devtools://') === 0) {
       return false;
     }
+    if (url.indexOf('/res-cite-tool/panel/search/') !== -1 ||
+        url.indexOf('/res-cite-tool/panel/search-settings/') !== -1) {
+      return false;
+    }
     if (url.indexOf('http://') === 0 || url.indexOf('https://') === 0) {
       return false;
     }
@@ -253,7 +266,7 @@ function isEditorWindow (win) {
 }
 
 function attachWindow (win) {
-  if (!win || win.isDestroyed()) {
+  if (!win || win.isDestroyed() || win.__rcSearchWindow || win.__rcSearchSettingsWindow) {
     return;
   }
   var webContents = win.webContents;
@@ -262,7 +275,16 @@ function attachWindow (win) {
   }
 
   var handler = function (event, input) {
-    if (!isEditorWindow(win)) {
+    if (!isEditorWindow(win) || shortcutRecording) {
+      return;
+    }
+    if (settingsLib.matchShortcut(input, searchShortcut)) {
+      try {
+        event.preventDefault();
+      } catch (e) {
+        // ignore
+      }
+      openSearchWindow();
       return;
     }
     if (!settingsLib.matchShortcut(input, shortcut)) {
@@ -295,6 +317,22 @@ function attachWindow (win) {
     }
     attached.delete(webContents.id);
   });
+}
+
+function detachWindow (win) {
+  if (!win || win.isDestroyed() || !win.webContents) {
+    return;
+  }
+  try {
+    var webContents = win.webContents;
+    var item = attached.get(webContents.id);
+    if (item) {
+      webContents.removeListener('before-input-event', item.handler);
+      attached.delete(webContents.id);
+    }
+  } catch (e) {
+    // ignore
+  }
 }
 
 function attachAllWindows () {
@@ -365,21 +403,31 @@ function setupGlobalFallback () {
     return;
   }
 
-  var accelerator = settingsLib.toAccelerator(shortcut);
+  registerGlobalFallback(settingsLib.toAccelerator(searchShortcut), function () {
+    var focused = electron.BrowserWindow.getFocusedWindow();
+    if (!focused) {
+      return;
+    }
+    openSearchWindow();
+  });
+
+  registerGlobalFallback(settingsLib.toAccelerator(shortcut), function () {
+    var focused = electron.BrowserWindow.getFocusedWindow();
+    if (!focused) {
+      return;
+    }
+    triggerFind('hotkey');
+  });
+}
+
+function registerGlobalFallback (accelerator, handler) {
   if (!accelerator) {
     return;
   }
-
   try {
-    var ok = electron.globalShortcut.register(accelerator, function () {
-      var focused = electron.BrowserWindow.getFocusedWindow();
-      if (!focused) {
-        return;
-      }
-      triggerFind('hotkey');
-    });
+    var ok = require('electron').globalShortcut.register(accelerator, handler);
     if (ok) {
-      globalFallbackAccelerator = accelerator;
+      globalFallbackAccelerators.push(accelerator);
       log('global shortcut fallback registered: ' + accelerator);
     } else {
       log('global shortcut register failed: ' + accelerator);
@@ -390,16 +438,581 @@ function setupGlobalFallback () {
 }
 
 function refreshGlobalFallback () {
-  if (!globalFallbackAccelerator) {
+  if (globalFallbackAccelerators.length === 0) {
     return;
   }
   try {
-    require('electron').globalShortcut.unregister(globalFallbackAccelerator);
+    var globalShortcut = require('electron').globalShortcut;
+    globalFallbackAccelerators.forEach(function (accelerator) {
+      globalShortcut.unregister(accelerator);
+    });
   } catch (e) {
     // ignore
   }
-  globalFallbackAccelerator = null;
+  globalFallbackAccelerators = [];
   setupGlobalFallback();
+}
+
+// -----------------------------------------------------------------------------
+// 快速查找（资源 / 文件夹 / UUID）
+// -----------------------------------------------------------------------------
+
+var SEARCH_RESULT_LIMIT = 500;
+var SEARCH_CLOSE_DELAY = 2000;
+
+function relOfPath (fspath) {
+  var projectPath = getProjectPath();
+  if (!projectPath || !fspath) {
+    return String(fspath || '');
+  }
+  var rel = fspath;
+  try {
+    rel = nodePath.relative(projectPath, fspath) || fspath;
+  } catch (e) {
+    rel = fspath;
+  }
+  return rel.replace(/\\/g, '/');
+}
+
+function normalizeUuidKeyword (keyword) {
+  var raw = String(keyword || '').trim().replace(/[{}\-]/g, '').toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(raw)) {
+    return '';
+  }
+  return raw.slice(0, 8) + '-' + raw.slice(8, 12) + '-' + raw.slice(12, 16) + '-' +
+    raw.slice(16, 20) + '-' + raw.slice(20);
+}
+
+function escapeRegExp (text) {
+  return String(text).replace(/[*.?+$^()\[\]{}|\\\/]/g, '\\$&');
+}
+
+/**
+ * 收集项目 assets 下的文件和文件夹（跳过 .meta）。
+ * @returns {Promise<Array>}
+ */
+function collectSearchEntries () {
+  var projectPath = getProjectPath();
+  var assetsDir = projectPath ? nodePath.join(projectPath, 'assets') : '';
+  var entries = [];
+  if (!assetsDir || !fs.existsSync(assetsDir)) {
+    return Promise.resolve(entries);
+  }
+
+  return new Promise(function (resolve) {
+    var pending = 0;
+    var finished = false;
+
+    function finish () {
+      if (!finished && pending === 0) {
+        finished = true;
+        resolve(entries);
+      }
+    }
+
+    function walk (dir) {
+      pending++;
+      fs.readdir(dir, { withFileTypes: true }, function (err, list) {
+        if (!err && list) {
+          list.forEach(function (item) {
+            var full = nodePath.join(dir, item.name);
+            if (item.isDirectory()) {
+              entries.push({ name: item.name, path: full, isDir: true, extname: '' });
+              walk(full);
+            } else if (item.isFile()) {
+              var extname = nodePath.extname(item.name);
+              if (extname === '.meta') {
+                return;
+              }
+              entries.push({ name: item.name, path: full, isDir: false, extname: extname });
+            }
+          });
+        }
+        pending--;
+        finish();
+      });
+    }
+
+    walk(assetsDir);
+  });
+}
+
+function toSearchItem (entry, extra) {
+  var item = {
+    name: entry.name,
+    path: entry.path,
+    rel: relOfPath(entry.path),
+    isDir: !!entry.isDir,
+    extname: entry.extname || '',
+  };
+  if (extra) {
+    Object.keys(extra).forEach(function (key) {
+      item[key] = extra[key];
+    });
+  }
+  return item;
+}
+
+/**
+ * 按名称模糊匹配（与 ccc-quick-finder 一致：字符顺序匹配，忽略大小写）。
+ * @param {string} keyword
+ * @returns {Array}
+ */
+function matchSearchEntries (keyword) {
+  var results = [];
+  if (!keyword) {
+    return results;
+  }
+
+  var regExp;
+  try {
+    regExp = new RegExp(String(keyword).split('').map(escapeRegExp).join('.*?'), 'i');
+  } catch (e) {
+    return results;
+  }
+
+  for (var i = 0; i < searchEntries.length; i++) {
+    var entry = searchEntries[i];
+    var match = entry.name.match(regExp);
+    if (!match) {
+      continue;
+    }
+    results.push({ entry: entry, similarity: match[0].length });
+    if (results.length >= 4000) {
+      break;
+    }
+  }
+
+  results.sort(function (a, b) {
+    if (a.similarity !== b.similarity) {
+      return a.similarity - b.similarity;
+    }
+    if (a.entry.name.length !== b.entry.name.length) {
+      return a.entry.name.length - b.entry.name.length;
+    }
+    return a.entry.name.localeCompare(b.entry.name);
+  });
+
+  return results.slice(0, SEARCH_RESULT_LIMIT).map(function (row) {
+    return toSearchItem(row.entry);
+  });
+}
+
+function resolveUuidItem (uuid) {
+  var fspath = safeGet(function () { return Editor.assetdb.uuidToFspath(uuid); }, null);
+  if (!fspath) {
+    return null;
+  }
+  return {
+    name: nodePath.basename(fspath),
+    path: fspath,
+    rel: relOfPath(fspath),
+    isDir: safeGet(function () { return fs.statSync(fspath).isDirectory(); }, false),
+    extname: nodePath.extname(fspath),
+    uuid: true,
+  };
+}
+
+function searchUuidOf (fspath) {
+  if (!fspath) {
+    return null;
+  }
+  var uuid = safeGet(function () { return Editor.assetdb.fspathToUuid(fspath); }, null);
+  if (uuid) {
+    return uuid;
+  }
+  // 文件夹等场景的兜底：先转 db:// 再取 uuid
+  var url = safeGet(function () { return Editor.assetdb.fspathToUrl(fspath); }, null);
+  if (url) {
+    return safeGet(function () { return Editor.assetdb.urlToUuid(url); }, null);
+  }
+  return null;
+}
+
+function handleSearchMatch (event, keyword) {
+  var payload = { items: [], notice: '' };
+  if (!event || !event.sender || event.sender.isDestroyed()) {
+    return;
+  }
+  var text = String(keyword || '').trim();
+  if (!text) {
+    event.sender.send('res-cite-tool:search-results', payload);
+    return;
+  }
+
+  var uuid = normalizeUuidKeyword(text);
+  if (uuid) {
+    var item = resolveUuidItem(uuid);
+    if (item) {
+      payload.items.push(item);
+    } else {
+      payload.notice = '未找到 UUID 对应的资源';
+    }
+  } else {
+    payload.items = matchSearchEntries(text);
+  }
+
+  if (!event.sender.isDestroyed()) {
+    event.sender.send('res-cite-tool:search-results', payload);
+  }
+}
+
+function revealSearchItem (item) {
+  var uuid = searchUuidOf(item && item.path);
+  if (!uuid) {
+    return;
+  }
+  safeGet(function () { Editor.Ipc.sendToAll('assets:hint', uuid); });
+  safeGet(function () { Editor.Selection.select('asset', uuid); });
+}
+
+function openSearchItem (item) {
+  if (!item || !item.path) {
+    return;
+  }
+
+  var uuid = searchUuidOf(item.path);
+  var extname = String(item.extname || '').toLowerCase();
+
+  if (uuid && !item.isDir) {
+    if (extname === '.prefab') {
+      safeGet(function () { Editor.Ipc.sendToAll('scene:enter-prefab-edit-mode', uuid); });
+    } else if (extname === '.fire' || extname === '.scene') {
+      safeGet(function () { Editor.Panel.open('scene', { uuid: uuid }); });
+    } else if (extname === '.ts' || extname === '.js' || extname === '.json' ||
+               extname === '.txt' || extname === '.md') {
+      safeGet(function () { Editor.Ipc.sendToMain('assets:open-text-file', uuid); });
+    }
+  }
+
+  hideSearchWindow();
+
+  if (uuid) {
+    // 窗口已隐藏但尚未销毁，此时广播不会与窗口销毁产生竞态
+    setTimeout(function () {
+      revealSearchItem(item);
+    }, 50);
+  }
+}
+
+function hideSearchWindow () {
+  if (!searchWindow || searchWindow.isDestroyed()) {
+    searchWindow = null;
+    return;
+  }
+
+  var win = searchWindow;
+  searchWindow = null;
+  try {
+    win.hide();
+  } catch (e) {
+    // ignore
+  }
+
+  setTimeout(function () {
+    try {
+      if (!win.isDestroyed()) {
+        win.close();
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, SEARCH_CLOSE_DELAY);
+}
+
+function createSearchWindow () {
+  var electron;
+  try {
+    electron = require('electron');
+  } catch (e) {
+    log('search window unavailable: ' + (e && e.message));
+    return;
+  }
+
+  var BrowserWindow = electron.BrowserWindow;
+  if (!BrowserWindow) {
+    return;
+  }
+
+  var width = 560;
+  var height = 560;
+  var area = { x: 0, y: 0, width: 1280, height: 800 };
+  try {
+    area = electron.screen.getPrimaryDisplay().workArea;
+  } catch (e) {
+    // ignore
+  }
+
+  var win = new BrowserWindow({
+    width: width,
+    height: height,
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + Math.max(40, area.height * 0.18)),
+    frame: false,
+    resizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    transparent: true,
+    opacity: 0.97,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  win.__rcSearchWindow = true;
+  searchWindow = win;
+  // 搜索窗不需要编辑器快捷键钩子
+  detachWindow(win);
+
+  win.on('ready-to-show', function () {
+    try {
+      win.show();
+      win.focus();
+    } catch (e) {
+      // ignore
+    }
+  });
+  win.on('blur', function () {
+    if (searchWindow === win) {
+      hideSearchWindow();
+    }
+  });
+  win.on('closed', function () {
+    if (searchWindow === win) {
+      searchWindow = null;
+    }
+  });
+
+  var page = nodePath.join(__dirname, 'panel', 'search', 'index.html').replace(/\\/g, '/');
+  win.loadURL('file:///' + page);
+}
+
+function openSearchWindow () {
+  if (searchWindow && !searchWindow.isDestroyed()) {
+    hideSearchWindow();
+    return;
+  }
+  if (searchOpening) {
+    return;
+  }
+  if (!getProjectPath()) {
+    log('project not ready, skip search');
+    return;
+  }
+
+  searchOpening = true;
+  collectSearchEntries().then(function (entries) {
+    searchOpening = false;
+    if (disposed) {
+      return;
+    }
+    searchEntries = entries;
+    createSearchWindow();
+  }).catch(function (e) {
+    searchOpening = false;
+    if (disposed) {
+      return;
+    }
+    log('collect search entries failed: ' + (e && e.message));
+    searchEntries = [];
+    createSearchWindow();
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 快速查找资源设置（独立弹窗）
+// -----------------------------------------------------------------------------
+
+/**
+ * 应用快速查找快捷键：校验 → 持久化 → 刷新系统级回退注册。
+ * @param {object} raw
+ * @returns {object}
+ */
+function applySearchShortcut (raw) {
+  var combo = settingsLib.normalize(raw);
+  if (!combo) {
+    return { ok: false, error: 'INVALID_SHORTCUT' };
+  }
+
+  var previous = searchShortcut;
+  searchShortcut = combo;
+  if (!persistSettings()) {
+    searchShortcut = previous;
+    return { ok: false, error: 'SAVE_FAILED' };
+  }
+
+  refreshGlobalFallback();
+  log('search shortcut changed to ' + combo.label);
+  return { ok: true, shortcut: combo };
+}
+
+function sendSearchSettingsResult (sender, payload) {
+  try {
+    if (sender && !sender.isDestroyed()) {
+      sender.send('res-cite-tool:search-settings-result', payload);
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+function createSearchSettingsWindow () {
+  var electron;
+  try {
+    electron = require('electron');
+  } catch (e) {
+    log('search settings window unavailable: ' + (e && e.message));
+    return;
+  }
+
+  var BrowserWindow = electron.BrowserWindow;
+  if (!BrowserWindow) {
+    return;
+  }
+
+  var win = new BrowserWindow({
+    width: 460,
+    height: 250,
+    title: '快速查找资源设置',
+    frame: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    autoHideMenuBar: true,
+    show: false,
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  win.__rcSearchSettingsWindow = true;
+  searchSettingsWindow = win;
+  detachWindow(win);
+
+  win.on('ready-to-show', function () {
+    try {
+      win.center();
+    } catch (e) {
+      // ignore
+    }
+    try {
+      win.show();
+      win.focus();
+    } catch (e) {
+      // ignore
+    }
+  });
+  win.on('closed', function () {
+    if (searchSettingsWindow === win) {
+      searchSettingsWindow = null;
+    }
+    shortcutRecording = false;
+  });
+
+  var page = nodePath.join(__dirname, 'panel', 'search-settings', 'index.html').replace(/\\/g, '/');
+  win.loadURL('file:///' + page);
+}
+
+function openSearchSettingsWindow () {
+  if (searchSettingsWindow && !searchSettingsWindow.isDestroyed()) {
+    try {
+      searchSettingsWindow.show();
+      searchSettingsWindow.focus();
+    } catch (e) {
+      // ignore
+    }
+    return;
+  }
+  createSearchSettingsWindow();
+}
+
+function closeSearchSettingsWindow () {
+  if (!searchSettingsWindow || searchSettingsWindow.isDestroyed()) {
+    searchSettingsWindow = null;
+    return;
+  }
+  try {
+    searchSettingsWindow.close();
+  } catch (e) {
+    // ignore
+  }
+}
+
+function installSearchIpc () {
+  var electron;
+  try {
+    electron = require('electron');
+  } catch (e) {
+    return;
+  }
+  if (!electron || !electron.ipcMain || searchIpcInstalled) {
+    return;
+  }
+
+  searchIpcInstalled = true;
+  var ipc = electron.ipcMain;
+  ipc.on('res-cite-tool:search-match', function (event, keyword) {
+    handleSearchMatch(event, keyword);
+  });
+  ipc.on('res-cite-tool:search-open', function (event, item) {
+    openSearchItem(item);
+  });
+  ipc.on('res-cite-tool:search-focus', function (event, item) {
+    revealSearchItem(item);
+  });
+  ipc.on('res-cite-tool:search-close', function () {
+    hideSearchWindow();
+  });
+  ipc.on('res-cite-tool:search-settings-get', function (event) {
+    var sender = event && event.sender;
+    if (sender && !sender.isDestroyed()) {
+      sender.send('res-cite-tool:search-settings-state', {
+        ok: true,
+        shortcut: searchShortcut,
+      });
+    }
+  });
+  ipc.on('res-cite-tool:search-settings-set', function (event, payload) {
+    sendSearchSettingsResult(event && event.sender, applySearchShortcut(payload));
+  });
+  ipc.on('res-cite-tool:search-settings-reset', function (event) {
+    sendSearchSettingsResult(
+      event && event.sender,
+      applySearchShortcut(settingsLib.DEFAULT_SEARCH_SHORTCUT)
+    );
+  });
+  ipc.on('res-cite-tool:search-settings-close', function () {
+    closeSearchSettingsWindow();
+  });
+  ipc.on('res-cite-tool:shortcut-recording', function (event, flag) {
+    shortcutRecording = !!flag;
+  });
+}
+
+function removeSearchIpc () {
+  try {
+    var ipc = require('electron').ipcMain;
+    ipc.removeAllListeners('res-cite-tool:search-match');
+    ipc.removeAllListeners('res-cite-tool:search-open');
+    ipc.removeAllListeners('res-cite-tool:search-focus');
+    ipc.removeAllListeners('res-cite-tool:search-close');
+    ipc.removeAllListeners('res-cite-tool:search-settings-get');
+    ipc.removeAllListeners('res-cite-tool:search-settings-set');
+    ipc.removeAllListeners('res-cite-tool:search-settings-reset');
+    ipc.removeAllListeners('res-cite-tool:search-settings-close');
+    ipc.removeAllListeners('res-cite-tool:shortcut-recording');
+  } catch (e) {
+    // ignore
+  }
+  searchIpcInstalled = false;
 }
 
 // -----------------------------------------------------------------------------
@@ -651,6 +1264,22 @@ function handleQuery (event, uuids) {
     });
 }
 
+function persistSettings () {
+  if (!settingsPath) {
+    return false;
+  }
+  try {
+    settingsLib.save(settingsPath, {
+      shortcut: shortcut,
+      searchShortcut: searchShortcut,
+    });
+    return true;
+  } catch (e) {
+    log('save settings failed: ' + (e && e.message));
+    return false;
+  }
+}
+
 // -----------------------------------------------------------------------------
 // 插件入口
 // -----------------------------------------------------------------------------
@@ -662,10 +1291,13 @@ module.exports = {
 
     var projectPath = getProjectPath();
     if (projectPath) {
-      shortcut = loadProjectSettings(projectPath).shortcut;
+      var loaded = loadProjectSettings(projectPath);
+      shortcut = loaded.shortcut;
+      searchShortcut = loaded.searchShortcut;
     }
 
     attachAllWindows();
+    installSearchIpc();
     ensureIndexer();
   },
 
@@ -679,13 +1311,36 @@ module.exports = {
     }
     pendingTrigger = null;
 
-    if (globalFallbackAccelerator) {
+    if (searchWindow && !searchWindow.isDestroyed()) {
       try {
-        require('electron').globalShortcut.unregister(globalFallbackAccelerator);
+        searchWindow.destroy();
       } catch (e) {
         // ignore
       }
-      globalFallbackAccelerator = null;
+    }
+    searchWindow = null;
+    if (searchSettingsWindow && !searchSettingsWindow.isDestroyed()) {
+      try {
+        searchSettingsWindow.destroy();
+      } catch (e) {
+        // ignore
+      }
+    }
+    searchSettingsWindow = null;
+    searchEntries = [];
+    shortcutRecording = false;
+    removeSearchIpc();
+
+    if (globalFallbackAccelerators.length > 0) {
+      try {
+        var globalShortcut = require('electron').globalShortcut;
+        globalFallbackAccelerators.forEach(function (accelerator) {
+          globalShortcut.unregister(accelerator);
+        });
+      } catch (e) {
+        // ignore
+      }
+      globalFallbackAccelerators = [];
     }
 
     if (indexer) {
@@ -699,6 +1354,18 @@ module.exports = {
   messages: {
     'open-panel': function () {
       triggerFind('menu');
+    },
+
+    'open-search': function () {
+      openSearchWindow();
+    },
+
+    'open-search-settings': function () {
+      openSearchSettingsWindow();
+    },
+
+    'set-shortcut-recording': function (event, flag) {
+      shortcutRecording = !!flag;
     },
 
     'open-unused-panel': function () {
@@ -830,7 +1497,7 @@ module.exports = {
     },
 
     'get-settings': function (event) {
-      reply(event, { shortcut: shortcut });
+      reply(event, { shortcut: shortcut, searchShortcut: searchShortcut });
     },
 
     'set-shortcut': function (event, payload) {
@@ -840,19 +1507,21 @@ module.exports = {
         return;
       }
 
-      if (settingsPath) {
-        try {
-          settingsLib.save(settingsPath, { shortcut: combo });
-        } catch (e) {
-          reply(event, { ok: false, error: 'SAVE_FAILED' });
-          return;
-        }
+      var previous = shortcut;
+      shortcut = combo;
+      if (!persistSettings()) {
+        shortcut = previous;
+        reply(event, { ok: false, error: 'SAVE_FAILED' });
+        return;
       }
 
-      shortcut = combo;
       refreshGlobalFallback();
       log('shortcut changed to ' + combo.label);
       reply(event, { ok: true, shortcut: combo });
+    },
+
+    'set-search-shortcut': function (event, payload) {
+      reply(event, applySearchShortcut(payload));
     },
 
     'rebuild-index': function (event) {

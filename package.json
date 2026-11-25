@@ -10,6 +10,12 @@
     },
     "i18n:MAIN_MENU.package.title/资源引用工具/资源引用管理": {
       "message": "res-cite-tool:open-unused-panel"
+    },
+    "i18n:MAIN_MENU.package.title/资源引用工具/资源快速查找/打开": {
+      "message": "res-cite-tool:open-search"
+    },
+    "i18n:MAIN_MENU.package.title/资源引用工具/资源快速查找/设置": {
+      "message": "res-cite-tool:open-search-settings"
     }
   },
   "panel": {

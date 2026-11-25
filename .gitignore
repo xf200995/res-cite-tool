@@ -1,0 +1,9 @@
+# Trae 编辑器本地配置
+/.trae/
+/.trae-html-share-packages/
+
+# VS Code 本地配置
+/.vscode/
+
+# 依赖目录
+/node_modules/

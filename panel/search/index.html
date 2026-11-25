@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="index.css">
+    <script type="text/javascript" src="index.js" defer></script>
+</head>
+
+<body>
+    <div class="layout">
+        <div class="search">
+            <input id="input" class="input" type="text" placeholder="搜索资源 / 文件夹名称，或粘贴 UUID" spellcheck="false" autofocus />
+            <button id="searchBtn" class="btn" type="button">查找</button>
+        </div>
+        <div class="notice" id="notice" hidden></div>
+        <div class="result" id="result" hidden>
+            <ul class="list" id="list"></ul>
+        </div>
+        <div class="tips">
+            <span>↑↓ 选择</span>
+            <span>Enter 打开</span>
+            <span>←→ 定位</span>
+            <span>Esc 关闭</span>
+        </div>
+    </div>
+</body>
+
+</html>

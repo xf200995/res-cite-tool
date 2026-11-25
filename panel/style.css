@@ -187,6 +187,10 @@
   gap: 6px;
 }
 
+.rcf-settings-row + .rcf-settings-row {
+  margin-top: 6px;
+}
+
 .rcf-settings-label {
   color: #9a9a9a;
   flex: 0 0 auto;
