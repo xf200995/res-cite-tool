@@ -23,6 +23,7 @@ var disposed = false;
 var pendingTrigger = null;
 var pendingTriggerTimer = null;
 var searchWindow = null;
+var searchReturnWindow = null;
 var searchSettingsWindow = null;
 var searchEntries = [];
 var searchIpcInstalled = false;
@@ -307,7 +308,6 @@ function attachWindow (win) {
   }
 
   attached.set(webContents.id, { webContents: webContents, handler: handler });
-  log('input hook attached id=' + webContents.id);
 
   webContents.once('destroyed', function () {
     try {
@@ -685,7 +685,7 @@ function openSearchItem (item) {
     }
   }
 
-  hideSearchWindow();
+  hideSearchWindow(true);
 
   if (uuid) {
     // 窗口已隐藏但尚未销毁，此时广播不会与窗口销毁产生竞态
@@ -695,18 +695,89 @@ function openSearchItem (item) {
   }
 }
 
-function hideSearchWindow () {
+/**
+ * 激活编辑器窗口：优先使用打开搜索窗前聚焦的窗口，否则回退到任意编辑器窗口。
+ * @param {object|null} preferred
+ * @returns {boolean}
+ */
+function focusEditorWindow (preferred) {
+  var candidates = preferred ? [preferred] : [];
+  try {
+    var electron = require('electron');
+    var windows = (electron.BrowserWindow && electron.BrowserWindow.getAllWindows()) || [];
+    windows.forEach(function (win) {
+      if (win !== preferred && isEditorWindow(win)) {
+        candidates.push(win);
+      }
+    });
+  } catch (e) {
+    // ignore
+  }
+
+  for (var i = 0; i < candidates.length; i++) {
+    var win = candidates[i];
+    try {
+      if (!win || win.isDestroyed()) {
+        continue;
+      }
+      if (typeof win.isMinimized === 'function' && win.isMinimized()) {
+        win.restore();
+      }
+      win.show();
+      win.focus();
+      return true;
+    } catch (e) {
+      // ignore
+    }
+  }
+  return false;
+}
+
+function getFocusedEditorWindow () {
+  try {
+    var electron = require('electron');
+    var win = electron.BrowserWindow && electron.BrowserWindow.getFocusedWindow();
+    if (win && !win.isDestroyed() && isEditorWindow(win)) {
+      return win;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * 关闭搜索窗。
+ * @param {boolean} restoreFocus 是否把焦点交还给编辑器（Esc / 打开结果时使用）
+ */
+function hideSearchWindow (restoreFocus) {
   if (!searchWindow || searchWindow.isDestroyed()) {
     searchWindow = null;
+    var fallbackTarget = restoreFocus ? searchReturnWindow : null;
+    searchReturnWindow = null;
+    if (restoreFocus) {
+      setTimeout(function () {
+        focusEditorWindow(fallbackTarget);
+      }, 0);
+    }
     return;
   }
 
   var win = searchWindow;
+  var target = restoreFocus ? searchReturnWindow : null;
   searchWindow = null;
+  searchReturnWindow = null;
   try {
     win.hide();
   } catch (e) {
     // ignore
+  }
+
+  if (restoreFocus) {
+    // 先隐藏搜索窗，再激活编辑器，避免隐藏动作把焦点留在桌面上
+    setTimeout(function () {
+      focusEditorWindow(target);
+    }, 0);
   }
 
   setTimeout(function () {
@@ -779,7 +850,7 @@ function createSearchWindow () {
   });
   win.on('blur', function () {
     if (searchWindow === win) {
-      hideSearchWindow();
+      hideSearchWindow(false);
     }
   });
   win.on('closed', function () {
@@ -794,7 +865,7 @@ function createSearchWindow () {
 
 function openSearchWindow () {
   if (searchWindow && !searchWindow.isDestroyed()) {
-    hideSearchWindow();
+    hideSearchWindow(false);
     return;
   }
   if (searchOpening) {
@@ -805,6 +876,8 @@ function openSearchWindow () {
     return;
   }
 
+  // 记住打开搜索窗前的编辑器窗口，关闭时把焦点交还给它
+  searchReturnWindow = getFocusedEditorWindow();
   searchOpening = true;
   collectSearchEntries().then(function (entries) {
     searchOpening = false;
@@ -969,7 +1042,7 @@ function installSearchIpc () {
     revealSearchItem(item);
   });
   ipc.on('res-cite-tool:search-close', function () {
-    hideSearchWindow();
+    hideSearchWindow(true);
   });
   ipc.on('res-cite-tool:search-settings-get', function (event) {
     var sender = event && event.sender;
@@ -1319,6 +1392,7 @@ module.exports = {
       }
     }
     searchWindow = null;
+    searchReturnWindow = null;
     if (searchSettingsWindow && !searchSettingsWindow.isDestroyed()) {
       try {
         searchSettingsWindow.destroy();
